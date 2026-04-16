@@ -1,0 +1,112 @@
+name: .agent/ validate
+
+on:
+  pull_request:
+    paths:
+      - '.agent/**'
+      - '.claude/**'
+      - '.cursor/**'
+      - '.windsurfrules'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required structure
+        run: |
+          set -e
+          for required in \
+            .agent/AGENTS.md \
+            .agent/memory/personal/PREFERENCES.md \
+            .agent/memory/semantic/LESSONS.md \
+            .agent/skills/_index.md \
+            .agent/skills/_manifest.jsonl \
+            .agent/protocols/permissions.md; do
+            if [[ ! -f "$required" ]]; then
+              echo "::error::missing $required"
+              exit 1
+            fi
+          done
+
+      - name: Validate skill manifest is valid JSONL
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          errors = 0
+          with open(".agent/skills/_manifest.jsonl") as f:
+              for i, line in enumerate(f, 1):
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      entry = json.loads(line)
+                  except json.JSONDecodeError as e:
+                      print(f"::error line={i}::invalid JSON: {e}")
+                      errors += 1
+                      continue
+                  for key in ("name", "version", "triggers"):
+                      if key not in entry:
+                          print(f"::error line={i}::missing key '{key}' in {entry.get('name','?')}")
+                          errors += 1
+          sys.exit(1 if errors else 0)
+          PY
+
+      - name: Every manifest entry has a SKILL.md
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          missing = []
+          with open(".agent/skills/_manifest.jsonl") as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  entry = json.loads(line)
+                  skill_path = f".agent/skills/{entry['name']}/SKILL.md"
+                  if not os.path.isfile(skill_path):
+                      missing.append(skill_path)
+          if missing:
+              for m in missing:
+                  print(f"::error::missing skill file: {m}")
+              sys.exit(1)
+          PY
+
+      - name: Hooks are executable
+        run: |
+          for hook in .agent/harness/hooks/*.sh bin/*; do
+            [[ -f "$hook" ]] || continue
+            if [[ ! -x "$hook" ]]; then
+              echo "::error::not executable: $hook"
+              exit 1
+            fi
+          done
+
+      - name: pre_tool_call.sh smoke test
+        run: |
+          if [[ -f .agent/harness/hooks/pre_tool_call.sh ]]; then
+            # Force push to main must be denied
+            set +e
+            out=$(echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' | \
+              bash .agent/harness/hooks/pre_tool_call.sh 2>&1)
+            rc=$?
+            set -e
+            if [[ $rc -ne 2 ]]; then
+              echo "::error::pre_tool_call.sh did not deny force-push to main (exit=$rc)"
+              echo "output: $out"
+              exit 1
+            fi
+            # Benign edit must be allowed
+            set +e
+            echo '{"tool_name":"Edit","tool_input":{"file_path":"README.md"}}' | \
+              bash .agent/harness/hooks/pre_tool_call.sh
+            rc=$?
+            set -e
+            if [[ $rc -ne 0 ]]; then
+              echo "::error::pre_tool_call.sh denied a benign edit (exit=$rc)"
+              exit 1
+            fi
+          fi

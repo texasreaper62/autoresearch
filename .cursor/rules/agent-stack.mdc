@@ -1,0 +1,28 @@
+---
+description: Portable .agent/ brain (autoresearch)
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Agent brain
+
+This repo uses the portable `.agent/` brain. Read in order:
+
+1. `.agent/AGENTS.md` — the map.
+2. `.agent/memory/personal/PREFERENCES.md` — user's stable conventions.
+3. `.agent/memory/semantic/LESSONS.md` — distilled patterns.
+4. `.agent/skills/_index.md` — discover skills. Load the full `SKILL.md`
+   only when its triggers match the current task.
+5. `.agent/protocols/permissions.md` — check before any tool call.
+
+## Task framing
+
+See `program.md` for the directive. When running experiments:
+
+- Every iteration MUST run in a fresh-context subagent. See
+  `.agent/skills/subagent-dispatcher/SKILL.md`. In Cursor, prefer
+  a new tab/agent session per iteration rather than continuing in the
+  same context.
+- Never modify `prepare.py`. Never add dependencies. Never commit
+  `results.tsv`.
+- Never stop the loop until explicitly interrupted.

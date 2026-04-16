@@ -1,0 +1,18 @@
+# Windsurf rules — autoresearch
+
+This repo uses a portable `.agent/` brain. Load it at session start:
+
+- `.agent/AGENTS.md` — map of the brain.
+- `.agent/memory/personal/PREFERENCES.md` — stable user conventions.
+- `.agent/memory/semantic/LESSONS.md` — distilled patterns.
+- `.agent/skills/_index.md` — skills. Load full `SKILL.md` only when triggers match.
+- `.agent/protocols/permissions.md` — check before any tool call.
+
+Directive: see `program.md`.
+
+Key constraints (full list in permissions.md):
+- Never edit `prepare.py` — it's the eval harness.
+- Never add dependencies. Use only what's in `pyproject.toml`.
+- Never commit `results.tsv` — it stays untracked.
+- Never stop the experiment loop unless explicitly interrupted.
+- Each experiment iteration runs in a fresh-context subagent.
