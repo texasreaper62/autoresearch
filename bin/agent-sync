@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Sync .agent/ core from the upstream template.
+# Sync .agent/ core with the upstream template.
 #
 # Pulls template/core files (hooks, dream cycle, universal skills) from
 # the canonical agentic-stack repo. Preserves repo-local customizations
 # (memory/, repo-specific skills/, repo-specific protocols).
 #
 # Usage:
-#   bin/agent-sync pull         # pull latest from upstream
-#   bin/agent-sync status       # show version + drift vs upstream
+#   bin/agent-sync pull              # pull latest from upstream
+#   bin/agent-sync status            # show version + drift vs upstream
+#   bin/agent-sync promote <skill>   # stage a local skill for upstream PR
 set -euo pipefail
 
 UPSTREAM="${AGENTIC_STACK_UPSTREAM:-https://github.com/texasreaper62/agentic-stack.git}"
@@ -30,7 +31,12 @@ SYNC_DIRS=(
 )
 
 usage() {
-  sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+  cat <<EOF
+Usage:
+  bin/agent-sync pull              pull latest template core from upstream
+  bin/agent-sync status            show pinned version
+  bin/agent-sync promote <skill>   stage a local skill to send upstream
+EOF
   exit 1
 }
 
@@ -56,6 +62,37 @@ case "$action" in
     else
       echo "no pinned version; run: bin/agent-sync pull"
     fi
+    ;;
+  promote)
+    skill="${2:-}"
+    [[ -z "$skill" ]] && { echo "usage: bin/agent-sync promote <skill-name>"; exit 1; }
+    local_path=".agent/skills/$skill"
+    [[ -d "$local_path" ]] || { echo "skill not found: $local_path"; exit 1; }
+    tmpdir=$(mktemp -d)
+    git clone "$UPSTREAM" "$tmpdir" >&2
+    cd "$tmpdir"
+    branch="promote/$skill-$(date +%Y%m%d)"
+    git checkout -b "$branch"
+    cp -r "$OLDPWD/$local_path" ".agent/skills/"
+    # Add to manifest if not present
+    manifest=".agent/skills/_manifest.jsonl"
+    if ! grep -q "\"name\":\"$skill\"" "$manifest"; then
+      local_entry=$(grep "\"name\":\"$skill\"" "$OLDPWD/.agent/skills/_manifest.jsonl" | head -1)
+      [[ -n "$local_entry" ]] && echo "$local_entry" >> "$manifest"
+    fi
+    git add -A
+    git -c user.email="agent-sync@local" -c user.name="agent-sync" \
+        commit -m "promote skill: $skill" >&2
+    cat <<EOF
+
+Staged promotion of '$skill' at: $tmpdir
+Branch: $branch
+
+To push:
+  cd $tmpdir
+  git push -u origin $branch
+  # then open a PR against agentic-stack main
+EOF
     ;;
   *)
     usage
