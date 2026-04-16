@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# End-to-end self-test of the .agent/ brain.
+# Runs validate + brain + synthetic dream-cycle + hook round-trip.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+green() { printf '\033[32m%s\033[0m\n' "$*"; }
+yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
+
+errors=0
+fail() { red "FAIL: $*"; errors=$((errors+1)); }
+
+yellow "[1/5] bin/validate"
+bin/validate > /tmp/agent-test-validate.log 2>&1 || fail "bin/validate exit $?"
+grep -q "all checks passed" /tmp/agent-test-validate.log || fail "validate did not report success"
+green "  ok"
+
+yellow "[2/5] bin/brain renders"
+bin/brain > /tmp/agent-test-brain.log 2>&1 || fail "bin/brain exit $?"
+grep -q "skills" /tmp/agent-test-brain.log || fail "brain did not list skills"
+green "  ok"
+
+yellow "[3/5] pre_tool_call round-trip"
+# deny
+set +e
+echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' | \
+  bash .agent/harness/hooks/pre_tool_call.sh > /dev/null 2>&1
+[[ $? -eq 2 ]] || fail "force-push to main not denied"
+# allow
+echo '{"tool_name":"Edit","tool_input":{"file_path":"README.md"}}' | \
+  bash .agent/harness/hooks/pre_tool_call.sh > /dev/null 2>&1
+[[ $? -eq 0 ]] || fail "benign edit not allowed"
+set -e
+green "  ok"
+
+yellow "[4/5] post_tool_call + session_end write to episodic"
+EPISODIC=".agent/memory/episodic/AGENT_LEARNINGS.jsonl"
+before=$(wc -l < "$EPISODIC" 2>/dev/null || echo 0)
+echo '{"tool_name":"Edit","tool_input":{"file_path":"x"}}' | \
+  bash .agent/harness/hooks/post_tool_call.sh > /dev/null
+bash .agent/harness/hooks/session_end.sh > /dev/null
+after=$(wc -l < "$EPISODIC" 2>/dev/null || echo 0)
+if (( after >= before + 2 )); then
+  green "  ok (wrote $((after - before)) entries)"
+else
+  fail "hooks did not write expected episodic entries"
+fi
+# roll back the test entries
+head -n "$before" "$EPISODIC" > "$EPISODIC.new" && mv "$EPISODIC.new" "$EPISODIC"
+
+yellow "[5/5] dream-cycle imports"
+python3 -c "
+import sys
+sys.path.insert(0, '.agent/memory')
+sys.path.insert(0, '.agent/harness')
+import auto_dream, promote, decay, archive
+" || fail "dream-cycle modules don't import"
+green "  ok"
+
+echo
+if [[ $errors -eq 0 ]]; then
+  green "all self-tests passed"
+  exit 0
+else
+  red "$errors failure(s)"
+  exit 1
+fi
