@@ -46,3 +46,17 @@ Triggers: "debug", "why is this failing", "investigate", "stack trace"
 
 ### deploy-checklist
 Unused in autoresearch (no deployment). Kept for portability.
+
+## Context engineering (universal)
+
+### context-compactor
+When/how to proactively /compact with a focus instruction; when to prefer /clear.
+Triggers: "compact", "context window full", "/compact"
+
+### rewind-handoff
+Rewind + summarize-from-here instead of "that didn't work, try X".
+Triggers: "that didn't work", "rewind", "/rewind"
+
+### session-boundaries
+New task = new session. When to /clear vs carry context.
+Triggers: "new task", "new session", "/clear"

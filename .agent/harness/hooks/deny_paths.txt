@@ -1,0 +1,4 @@
+# File path patterns denied by pre_tool_call.sh
+# One pattern per line. Substring match against file_path.
+prepare.py
+results.tsv
