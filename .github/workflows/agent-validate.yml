@@ -85,10 +85,37 @@ jobs:
             fi
           done
 
+      - name: .claude/agents frontmatter
+        run: |
+          if ls .claude/agents/*.md >/dev/null 2>&1; then
+            python3 - <<'PY'
+          import re, sys, pathlib
+          bad = 0
+          for p in pathlib.Path(".claude/agents").glob("*.md"):
+              text = p.read_text()
+              if not text.startswith("---\n"):
+                  print(f"::error file={p}::no frontmatter")
+                  bad += 1
+                  continue
+              end = text.find("\n---\n", 4)
+              if end < 0:
+                  print(f"::error file={p}::unterminated frontmatter")
+                  bad += 1
+                  continue
+              fm = text[4:end]
+              for key in ("name", "description"):
+                  if not re.search(rf"^{key}:\s*\S", fm, re.M):
+                      print(f"::error file={p}::missing frontmatter field '{key}'")
+                      bad += 1
+          sys.exit(1 if bad else 0)
+          PY
+          else
+            echo "no .claude/agents/*.md to check"
+          fi
+
       - name: pre_tool_call.sh smoke test
         run: |
           if [[ -f .agent/harness/hooks/pre_tool_call.sh ]]; then
-            # Force push to main must be denied
             set +e
             out=$(echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' | \
               bash .agent/harness/hooks/pre_tool_call.sh 2>&1)
@@ -99,7 +126,6 @@ jobs:
               echo "output: $out"
               exit 1
             fi
-            # Benign edit must be allowed
             set +e
             echo '{"tool_name":"Edit","tool_input":{"file_path":"README.md"}}' | \
               bash .agent/harness/hooks/pre_tool_call.sh

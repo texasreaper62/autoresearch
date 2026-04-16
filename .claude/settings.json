@@ -11,6 +11,17 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .agent/harness/hooks/post_tool_call.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
