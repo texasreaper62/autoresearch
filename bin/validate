@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Local mirror of .github/workflows/agent-validate.yml
+# Run before pushing: `bin/validate`
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+green() { printf '\033[32m%s\033[0m\n' "$*"; }
+yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
+
+errors=0
+fail() { red "FAIL: $*"; errors=$((errors+1)); }
+ok()   { green "  ok  $*"; }
+
+yellow "== required structure =="
+for required in \
+  .agent/AGENTS.md \
+  .agent/memory/personal/PREFERENCES.md \
+  .agent/memory/semantic/LESSONS.md \
+  .agent/skills/_index.md \
+  .agent/skills/_manifest.jsonl \
+  .agent/protocols/permissions.md; do
+  if [[ -f "$required" ]]; then ok "$required"; else fail "missing $required"; fi
+done
+
+yellow "== skill manifest is valid JSONL =="
+python3 - <<'PY' || errors=$((errors+1))
+import json, sys
+lines = open(".agent/skills/_manifest.jsonl").read().splitlines()
+bad = 0
+for i, line in enumerate(lines, 1):
+    line = line.strip()
+    if not line: continue
+    try:
+        entry = json.loads(line)
+    except json.JSONDecodeError as e:
+        print(f"  line {i}: invalid JSON: {e}")
+        bad += 1
+        continue
+    for key in ("name", "version", "triggers"):
+        if key not in entry:
+            print(f"  line {i}: missing '{key}' in {entry.get('name','?')}")
+            bad += 1
+sys.exit(1 if bad else 0)
+PY
+[[ $errors -eq 0 ]] && ok "manifest entries well-formed"
+
+yellow "== every manifest entry has a SKILL.md =="
+python3 - <<'PY' || errors=$((errors+1))
+import json, os, sys
+missing = []
+for line in open(".agent/skills/_manifest.jsonl"):
+    line = line.strip()
+    if not line: continue
+    entry = json.loads(line)
+    p = f".agent/skills/{entry['name']}/SKILL.md"
+    if not os.path.isfile(p):
+        missing.append(p)
+for m in missing:
+    print(f"  missing: {m}")
+sys.exit(1 if missing else 0)
+PY
+[[ $errors -eq 0 ]] && ok "every skill has a SKILL.md"
+
+yellow "== hooks + bin executables =="
+for f in .agent/harness/hooks/*.sh bin/*; do
+  [[ -f "$f" ]] || continue
+  if [[ -x "$f" ]]; then ok "$f"; else fail "not executable: $f"; fi
+done
+
+yellow "== .claude/agents frontmatter =="
+if ls .claude/agents/*.md >/dev/null 2>&1; then
+  python3 - <<'PY' || errors=$((errors+1))
+import re, sys, pathlib
+bad = []
+for p in pathlib.Path(".claude/agents").glob("*.md"):
+    text = p.read_text()
+    if not text.startswith("---\n"):
+        bad.append(f"{p}: no frontmatter")
+        continue
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        bad.append(f"{p}: unterminated frontmatter")
+        continue
+    fm = text[4:end]
+    for key in ("name", "description"):
+        if not re.search(rf"^{key}:\s*\S", fm, re.M):
+            bad.append(f"{p}: missing frontmatter field '{key}'")
+for b in bad: print(f"  {b}")
+sys.exit(1 if bad else 0)
+PY
+  [[ $errors -eq 0 ]] && ok ".claude/agents frontmatter valid"
+else
+  yellow "  no .claude/agents/*.md (optional)"
+fi
+
+yellow "== pre_tool_call.sh smoke test =="
+if [[ -f .agent/harness/hooks/pre_tool_call.sh ]]; then
+  set +e
+  echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' | \
+    bash .agent/harness/hooks/pre_tool_call.sh >/dev/null 2>&1
+  [[ $? -eq 2 ]] && ok "force-push to main denied" || fail "force-push to main NOT denied"
+  echo '{"tool_name":"Edit","tool_input":{"file_path":"README.md"}}' | \
+    bash .agent/harness/hooks/pre_tool_call.sh >/dev/null 2>&1
+  [[ $? -eq 0 ]] && ok "benign edit allowed" || fail "benign edit NOT allowed"
+  set -e
+fi
+
+echo
+if [[ $errors -eq 0 ]]; then
+  green "all checks passed"
+  exit 0
+else
+  red "$errors error(s)"
+  exit 1
+fi

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Run the dream cycle: compress episodic -> semantic memory.
+# Schedule this via cron or run manually between sessions.
+#
+#   bin/dream
+#
+# Cron example (nightly at 3am):
+#   0 3 * * * cd /path/to/repo && bin/dream >> /tmp/dream.log 2>&1
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+python3 .agent/memory/auto_dream.py

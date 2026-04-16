@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Sync .agent/ core with the upstream template.
+#
+# Pulls template/core files (hooks, dream cycle, universal skills) from
+# the canonical agentic-stack repo. Preserves repo-local customizations
+# (memory/, repo-specific skills/, repo-specific protocols).
+#
+# Usage:
+#   bin/agent-sync pull              # pull latest from upstream
+#   bin/agent-sync status            # show version + drift vs upstream
+#   bin/agent-sync promote <skill>   # stage a local skill for upstream PR
+set -euo pipefail
+
+UPSTREAM="${AGENTIC_STACK_UPSTREAM:-https://github.com/texasreaper62/agentic-stack.git}"
+PINNED_VERSION_FILE=".agent/.template-version"
+SYNC_DIRS=(
+  ".agent/harness/hooks"
+  ".agent/memory/auto_dream.py"
+  ".agent/memory/promote.py"
+  ".agent/memory/decay.py"
+  ".agent/memory/archive.py"
+  ".agent/tools"
+  ".agent/skills/skillforge"
+  ".agent/skills/memory-manager"
+  ".agent/skills/git-proxy"
+  ".agent/skills/debug-investigator"
+  ".agent/skills/deploy-checklist"
+  ".agent/skills/context-compactor"
+  ".agent/skills/rewind-handoff"
+  ".agent/skills/session-boundaries"
+)
+
+usage() {
+  cat <<EOF
+Usage:
+  bin/agent-sync pull              pull latest template core from upstream
+  bin/agent-sync status            show pinned version
+  bin/agent-sync promote <skill>   stage a local skill to send upstream
+EOF
+  exit 1
+}
+
+action="${1:-}"
+case "$action" in
+  pull)
+    tmpdir=$(mktemp -d)
+    git clone --depth=1 "$UPSTREAM" "$tmpdir" >&2
+    for path in "${SYNC_DIRS[@]}"; do
+      if [[ -e "$tmpdir/$path" ]]; then
+        mkdir -p "$(dirname "$path")"
+        cp -r "$tmpdir/$path" "$(dirname "$path")/"
+        echo "synced $path"
+      fi
+    done
+    (cd "$tmpdir" && git rev-parse HEAD) > "$PINNED_VERSION_FILE"
+    rm -rf "$tmpdir"
+    echo "pinned version: $(cat "$PINNED_VERSION_FILE")"
+    ;;
+  status)
+    if [[ -f "$PINNED_VERSION_FILE" ]]; then
+      echo "pinned: $(cat "$PINNED_VERSION_FILE")"
+    else
+      echo "no pinned version; run: bin/agent-sync pull"
+    fi
+    ;;
+  promote)
+    skill="${2:-}"
+    [[ -z "$skill" ]] && { echo "usage: bin/agent-sync promote <skill-name>"; exit 1; }
+    local_path=".agent/skills/$skill"
+    [[ -d "$local_path" ]] || { echo "skill not found: $local_path"; exit 1; }
+    tmpdir=$(mktemp -d)
+    git clone "$UPSTREAM" "$tmpdir" >&2
+    cd "$tmpdir"
+    branch="promote/$skill-$(date +%Y%m%d)"
+    git checkout -b "$branch"
+    cp -r "$OLDPWD/$local_path" ".agent/skills/"
+    # Add to manifest if not present
+    manifest=".agent/skills/_manifest.jsonl"
+    if ! grep -q "\"name\":\"$skill\"" "$manifest"; then
+      local_entry=$(grep "\"name\":\"$skill\"" "$OLDPWD/.agent/skills/_manifest.jsonl" | head -1)
+      [[ -n "$local_entry" ]] && echo "$local_entry" >> "$manifest"
+    fi
+    git add -A
+    git -c user.email="agent-sync@local" -c user.name="agent-sync" \
+        commit -m "promote skill: $skill" >&2
+    cat <<EOF
+
+Staged promotion of '$skill' at: $tmpdir
+Branch: $branch
+
+To push:
+  cd $tmpdir
+  git push -u origin $branch
+  # then open a PR against agentic-stack main
+EOF
+    ;;
+  *)
+    usage
+    ;;
+esac

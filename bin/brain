@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Show a summary of the .agent/ brain: skills, memory, current workspace.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
+gray()  { printf '\033[90m%s\033[0m\n' "$*"; }
+
+yellow "== .agent brain =="
+
+if [[ -f .agent/.template-version ]]; then
+  ver=$(cut -c1-7 .agent/.template-version)
+  gray "template: $ver"
+fi
+
+yellow "== skills =="
+if [[ -f .agent/skills/_manifest.jsonl ]]; then
+  python3 - <<'PY'
+import json, collections
+by_cat = collections.defaultdict(list)
+with open(".agent/skills/_manifest.jsonl") as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        e = json.loads(line)
+        by_cat[e.get("category", "other")].append(e["name"])
+for cat, names in sorted(by_cat.items()):
+    print(f"  {cat}: {', '.join(sorted(names))}")
+PY
+fi
+
+yellow "== memory =="
+if [[ -f .agent/memory/personal/PREFERENCES.md ]]; then
+  lines=$(wc -l < .agent/memory/personal/PREFERENCES.md | tr -d ' ')
+  gray "personal:   $lines lines"
+fi
+if [[ -f .agent/memory/semantic/LESSONS.md ]]; then
+  lines=$(wc -l < .agent/memory/semantic/LESSONS.md | tr -d ' ')
+  gray "semantic:   $lines lines of lessons"
+fi
+if [[ -f .agent/memory/episodic/AGENT_LEARNINGS.jsonl ]]; then
+  n=$(wc -l < .agent/memory/episodic/AGENT_LEARNINGS.jsonl | tr -d ' ')
+  gray "episodic:   $n entries"
+fi
+
+yellow "== current workspace =="
+if [[ -f .agent/memory/working/WORKSPACE.md ]]; then
+  task=$(grep -A1 "^## Current task" .agent/memory/working/WORKSPACE.md | tail -1)
+  gray "task: ${task:-(none)}"
+fi
+
+yellow "== permissions =="
+if [[ -f .agent/protocols/permissions.md ]]; then
+  deny=$(grep -cE "^- " .agent/protocols/permissions.md 2>/dev/null || echo 0)
+  gray "$deny total rules"
+fi
+
+yellow "== subagents =="
+if ls .claude/agents/*.md >/dev/null 2>&1; then
+  for f in .claude/agents/*.md; do
+    name=$(sed -n 's/^name: \(.*\)/\1/p' "$f" | head -1)
+    gray "  $name"
+  done
+else
+  gray "(none)"
+fi

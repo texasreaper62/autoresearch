@@ -47,7 +47,35 @@ Simply spin up your Claude/Codex or whatever you want in this repo (and disable 
 Hi have a look at program.md and let's kick off a new experiment! let's do the setup first.
 ```
 
-The `program.md` file is essentially a super lightweight "skill".
+The agent will load the portable `.agent/` brain (memory + skills + protocols) — see "Agent brain" below.
+
+## Agent brain
+
+This repo uses the portable agentic-stack `.agent/` folder. The brain travels across harnesses (Claude Code, Cursor, Windsurf, OpenAI/Claude SDKs, standalone Python) and keeps its knowledge when you switch.
+
+```
+.agent/
+├── AGENTS.md              # entry point — read first
+├── memory/
+│   ├── personal/PREFERENCES.md     # stable user conventions
+│   ├── working/WORKSPACE.md        # live task state
+│   ├── semantic/LESSONS.md         # distilled patterns
+│   └── episodic/AGENT_LEARNINGS.jsonl
+├── skills/                # progressive-disclosure capabilities
+├── protocols/permissions.md        # enforced at pre-tool-call hook
+└── harness/hooks/         # Claude Code hooks
+
+.claude/
+├── agents/experiment-runner.md     # fresh-context subagent per iteration
+└── settings.json                   # wires PreToolUse + Stop hooks
+
+bin/
+├── dream           # run nightly memory compression (cron-able)
+├── status          # iterations/hour, best val_bpb, cost
+└── agent-sync      # pull core template updates from upstream
+```
+
+Key skills: `experiment-loop`, `results-logging`, `branch-hygiene`, `simplicity-judge`, `subagent-dispatcher`.
 
 ## Project structure
 
